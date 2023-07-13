@@ -1,0 +1,179 @@
+---
+title: "Biostatistics II 2020 - Midterm Assignment (Table 1)"
+author: "Vinyas Harish, MD/PhD student year 3, University of Toronto"
+date: "Feb 29 2020"
+output: html_document
+---
+
+# Description
+
+This R markdown script is used to create table ones for the midterm assignment. 
+
+Dataset Description: Dataset of 560k patient visits in three Yale ERs.
+
+Dataset Source: https://github.com/yaleemmlc/admissionprediction (Github, can download the dataframe), 
+https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0201016#pone.0201016.ref012(accompanying PLoS ONE paper)
+
+## Load libraries and dataframes
+```{r}
+library(knitr)
+library(table1)
+library(tidyverse)
+
+load("~/Desktop/dispPred.RDa")
+load("~/Desktop/rxPred.RDa")
+
+```
+
+## More cleaning that came up, primary outcome
+```{r, eval=FALSE}
+#Recat race to fold more groups into other
+levels(dispositionPrediction_wCC$race) <- list("White or Caucasian" = c("White or Caucasian"),
+                                              "Black or African American " = c("Black or African American"),
+                                              "Hispanic or Latino" = c ("Hispanic or Latino"),
+                                              "Other" = c(" American Indian or Alaska Native","Asian","Native Hawaiian or Other Pacific                                                                   Islander"),
+                                              "Unknown" = c("Patient Refused", "Unknown"))
+dispositionPrediction_wCC$race[is.na(dispositionPrediction_wCC$race)] <- "Unknown" #Recat missing race
+
+#Rename hospital deps
+levels(dispositionPrediction_wCC$dep_name) <- list("Level 1 Trauma Center" = c("A"),
+                                                   "Community Hospital" = c("B"),
+                                                   "Freestanding ER" = c("C"))
+
+levels(dispositionPrediction_wCC$arrivalmode) <- list("Emergency Services" = c("ambulance", "police"),
+                                                      "Car" = c("Car"),
+                                                      "Walk-in" = c ("Walk-in", "Public Transportation", "Wheelchair"),
+                                                      "Other" = c("Other"))
+
+levels(dispositionPrediction_wCC$previousdispo) <- list("Admit" = c("Admit", "AMA", "Eloped", "Observation", "Send to L&D", "Transfer to Another Facility"),
+                                                        "Discharge" = c("Discharge"),
+                                                        "No previous disposition" = c("No previous dispo", "LWBS before Triage","LWBS after Triage"))
+
+dispositionPrediction_wCC <- dispositionPrediction_wCC[!is.na(dispositionPrediction_wCC$arrivalmode),]
+
+dispositionPrediction_wCC <- dispositionPrediction_wCC[!is.na(dispositionPrediction_wCC$cc_const),] #assuming this takes care of everyone
+
+collapse_cc <- function(dat){
+  dat$ptx <- seq.int(nrow(dat))
+  
+  dat <- dat %>% 
+    gather(contains('cc'), key='chief_complaint', value='n_complaints') %>% 
+    group_by(ptx) %>% 
+    mutate(rank = rank(n_complaints, ties.method = 'first')) %>% 
+    top_n(n=1, wt=rank) %>% 
+    select(ptx, chief_complaint, n_complaints, everything()) %>% 
+    ungroup(ptx) %>% 
+    arrange(ptx) %>% 
+    select(-ptx, -rank)
+  
+  return(dat)
+}
+
+
+dispPred <- dispositionPrediction_wCC %>% collapse_cc(.)
+```
+
+## More cleaning that came up, secondary outcome
+```{r, eval=FALSE}
+#Recat race to fold more groups into other
+levels(rxPred_wCC$race) <- list("White or Caucasian" = c("White or Caucasian"),
+                                              "Black or African American " = c("Black or African American"),
+                                              "Hispanic or Latino" = c ("Hispanic or Latino"),
+                                              "Other" = c(" American Indian or Alaska Native","Asian","Native Hawaiian or Other Pacific                                                                   Islander"),
+                                              "Unknown" = c("Patient Refused", "Unknown"))
+rxPred_wCC$race[is.na(rxPred_wCC$race)] <- "Unknown" #Recat missing race
+
+#Rename hospital deps
+levels(rxPred_wCC$dep_name) <- list("Level 1 Trauma Center" = c("A"),
+                                                   "Community Hospital" = c("B"),
+                                                   "Freestanding ER" = c("C"))
+
+levels(rxPred_wCC$arrivalmode) <- list("Emergency Services" = c("ambulance", "police"),
+                                                      "Car" = c("Car"),
+                                                      "Walk-in" = c ("Walk-in", "Public Transportation", "Wheelchair"),
+                                                      "Other" = c("Other"))
+
+levels(rxPred_wCC$previousdispo) <- list("Admit" = c("Admit", "AMA", "Eloped", "Observation", "Send to L&D", "Transfer to Another Facility"),
+                                                        "Discharge" = c("Discharge"),
+                                                        "No previous disposition" = c("No previous dispo", "LWBS before Triage","LWBS after Triage"))
+
+rxPred_wCC <- rxPred_wCC[!is.na(rxPred_wCC$arrivalmode),]
+
+rxPred_wCC <- rxPred_wCC[!is.na(rxPred_wCC$cc_const),] #assuming this takes care of everyone
+
+rxPred <- rxPred_wCC %>% collapse_cc(.)
+```
+
+## Cleanup Workspace 
+```{r,eval=FALSE}
+#Update saved dataframes
+save(dispPred, file="dispPred.Rda")
+save(rxPred, file="rxPred.Rda")
+write.csv(dispPred,'dispPred.csv')
+write.csv(rxPred, 'rxPred.csv')
+
+#Clean up old files
+rm(rxPred_wCC)
+rm(dispositionPrediction_wCC)
+
+#Get datatypes for each column in dataframe (they should be identical)
+datatypes <- sapply(dispPred, class)
+print(datatypes) #All factors or numeric which is convenient for this assignment
+
+```
+
+
+##Create Table 1a. Primary Outcome (Admission)
+```{r}
+#Group by: pt demographics, triage vitals (including ESI), chief complaint, and past hospital usage
+table1(~ factor(gender) + age + factor(race) + factor (lang) + factor (religion) + factor(maritalstatus) + factor(employstatus)
+       + factor(insurance_status) + dep_name + factor(arrivalmode) + factor(arrivalday) + factor(arrivaltime) + triage_vital_hr +
+      + triage_vital_sbp + triage_vital_dbp + triage_vital_rr + triage_vital_o2 + triage_vital_temp + esi + chief_complaint + n_complaints + previousdispo + n_edvisits +n_admissions + n_surgeries| disposition, data=dispPred, render.continuous = c(.="Mean (SD)",.="Median [Q1, Q3]"))
+
+#Statistical tests
+testGender = chisq.test(table(dispPred$gender, dispPred$gender))
+testAge = wilcox.test(x = table(dispPred$age, dispPred$disposition)) #This is different than SAS
+
+testAge = wilcox.test(x =dispPred$age[which(dispPred$disposition=='Admit' )], 
+                      y =dispPred$age[which(dispPred$disposition=='Discharge' )],
+                      paired = FALSE, correct = TRUE) #Still different than SAS but closer test stat
+
+testLang = chisq.test(table(dispPred$lang, dispPred$disposition))
+
+
+testHR = wilcox.test(x =dispPred$triage_vital_hr[which(dispPred$disposition=='Admit' )], 
+                      y =dispPred$triage_vital_hr[which(dispPred$disposition=='Discharge' )],
+                      paired = FALSE, correct = TRUE) 
+
+testSBP = wilcox.test(x =dispPred$triage_vital_sbp[which(dispPred$disposition=='Admit' )], 
+                      y =dispPred$triage_vital_sbp[which(dispPred$disposition=='Discharge' )],
+                      paired = FALSE, correct = TRUE) 
+
+testDBP = wilcox.test(x =dispPred$triage_vital_dbp[which(dispPred$disposition=='Admit' )], 
+                      y =dispPred$triage_vital_dbp[which(dispPred$disposition=='Discharge' )],
+                      paired = FALSE, correct = TRUE) 
+
+testRR = wilcox.test(x =dispPred$triage_vital_rr[which(dispPred$disposition=='Admit' )], 
+                      y =dispPred$triage_vital_rr[which(dispPred$disposition=='Discharge' )],
+                      paired = FALSE, correct = TRUE) 
+
+testO2 = wilcox.test(x =dispPred$triage_vital_o2[which(dispPred$disposition=='Admit' )], 
+                      y =dispPred$triage_vital_o2[which(dispPred$disposition=='Discharge' )],
+                      paired = FALSE, correct = TRUE) 
+
+testTemp = wilcox.test(x =dispPred$triage_vital_temp[which(dispPred$disposition=='Admit' )], 
+                      y =dispPred$triage_vital_temp[which(dispPred$disposition=='Discharge' )],
+                      paired = FALSE, correct = TRUE) 
+```
+
+##Create Table 1a. Primary Outcome (Polypharmacy)
+```{r}
+#Group by: pt demographics, triage vitals (including ESI), chief complaint, and past hospital usage
+table1(~ factor(gender) + age + factor(race) + factor (lang) + factor (religion) + factor(maritalstatus) + factor(employstatus)
+       + factor(insurance_status) + dep_name + factor(arrivalmode) + factor(arrivalday) + factor(arrivaltime) + chief_complaint + n_complaints +     triage_vital_hr + triage_vital_sbp + triage_vital_dbp + triage_vital_rr + triage_vital_o2 + triage_vital_temp + esi + previousdispo 
+      + n_edvisits +n_admissions + n_surgeries + n_meds, data=rxPred, render.continuous = c(.="Mean (SD)",.="Median [Q1, Q3]"))
+
+```
+
+
+
